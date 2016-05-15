@@ -23,7 +23,7 @@ Download the latest version from GitHub to /usr/local/bin/:
 
 ```
 cd /usr/local/bin
-sudo wget https://raw.githubusercontent.com/multappliednetworks/api-examples/master/enable-disable-leg/update-leg.py -O update-leg.py
+sudo wget https://raw.githubusercontent.com/multappliednetworks/api-examples/master/update-leg/update-leg.py -O update-leg.py
 sudo chmod +x update-leg.py
 ```
 Install the Requests Python library:
