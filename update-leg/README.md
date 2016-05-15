@@ -39,7 +39,7 @@ update-leg.py is configured with a few environment variables.
 ```
 export BA_HOST='bondingadmin.example.com'
 export BA_USER='you@example.com'
-export BA_PASSWD='correct horse battery stable'
+export BA_PASSWD='correct horse battery staple'
 ```
 
 If your server doesn't have a properly signed SSL certificate, also do:
@@ -69,7 +69,7 @@ You might want to run this command on a schedule. One way to do this is with [cr
 ```
 BA_HOST=bondingadmin.example.com
 BA_USER=you@example.com
-BA_PASSWD='correct horse battery stable'
+BA_PASSWD='correct horse battery staple'
 0 22 * * * nobody /usr/local/bin/update-leg.py 1 2 active
 0 6  * * * nobody /usr/local/bin/update-leg.py 1 2 idle
 ```
