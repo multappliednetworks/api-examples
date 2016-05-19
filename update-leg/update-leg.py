@@ -9,12 +9,23 @@ except ImportError:
     sys.stderr.write('  pip install requests\n')
     sys.exit(1)
 
-LEG_URL = 'https://{}/api/v3/bonds/{}/dhcp_legs/{}/'
+LEG_URL = 'https://{}/api/v3/bonds/{}/legs/{}/' # The generic leg URL. This doesn't specify what type the leg is (static, DHCP, PPPoE, etc), so can only be used for GET requests.
+
+def get_leg_type_url(bond_id, leg_id, mgmt_server, auth, verify_ssl):
+    """Get the leg's type-specific URL, since that's the one that can be used for PATCH requests."""
+    res = requests.get(
+        LEG_URL.format(mgmt_server, bond_id, leg_id),
+        auth=auth,
+        verify=verify_ssl
+    )
+    res.raise_for_status()
+    return res.json()['url']
 
 def update_link_mode(bond_id, leg_id, link_mode, mgmt_server, auth, verify_ssl):
     """Update the specified leg to the given link mode."""
+    patch_url = get_leg_type_url(bond_id, leg_id, mgmt_server, auth, verify_ssl)
     res = requests.patch(
-        LEG_URL.format(mgmt_server, bond_id, leg_id),
+        patch_url,
         json={'link_mode': link_mode},
         auth=auth,
         verify=verify_ssl
