@@ -29,7 +29,7 @@ sudo chmod +x update-leg.py
 Install the Requests Python library:
 
 ```
-sudo pip install --upgrade requests
+sudo pip3 install --upgrade requests
 ```
 
 ## Usage
