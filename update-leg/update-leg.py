@@ -1,4 +1,9 @@
 #!/usr/bin/env python3
+"""
+Update the link mode of a leg identified by command line arguments.
+
+Usage: update-leg.py <bond-id> <leg-id> offline|idle|active
+"""
 import sys
 import os
 import syslog
