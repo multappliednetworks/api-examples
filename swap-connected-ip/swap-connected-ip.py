@@ -1,65 +1,105 @@
-#!/usr/bin/env python3
+#!/usr/lib/bonding/bin/python3
 """
+Swap a connected IP from one bond to another.
 
+If configured with role=master, disable the connected IP on the backup and enable it on the master. If configured with role=backup, disable on the master and enable on the backup.
 """
 import sys
 import os
 import syslog
-try:
-    import requests
-except ImportError:
-    sys.stderr.write('Failed to import requests. You should probably run something such as:\n')
-    sys.stderr.write('  pip3 install requests\n')
-    sys.exit(1)
+import configparser
+import time
+import requests # This is always installed in the /usr/lib/bonding/bin/python environment. If you use your own Python environment, install this with "pip3 install requests".
 
-LEG_URL = 'https://{}/api/v3/bonds/{}/legs/{}/' # The generic leg URL. This doesn't specify what type the leg is (static, DHCP, PPPoE, etc), so can only be used for GET requests.
+CONF_FILE = '/etc/bonding/swapconnectedip.conf'
+CONNECTED_IP_URL = 'https://{}/api/v3/bonds/{}/connected_ips/{}/'
 
-def get_leg_type_url(bond_id, leg_id, mgmt_server, auth, verify_ssl):
-    """Get the leg's type-specific URL, since that's the one that can be used for PATCH requests."""
-    res = requests.get(
-        LEG_URL.format(mgmt_server, bond_id, leg_id),
-        auth=auth,
-        verify=verify_ssl
-    )
-    res.raise_for_status()
-    return res.json()['url']
+def update_connected_ip(target_ids, enabled, mgmt_server, auth, verify_ssl, timeout, attempts, attempt_delay):
+    """Update the connected IP. Try multiple times if necessary."""
+    for i in range(attempts):
+        bond_id = target_ids[0]
+        connected_ip_id = target_ids[1]
+        log('Updating bond {} connected IP {} enabled to {} (attempt {} of {}).'.format(bond_id, connected_ip_id, enabled, i + 1, attempts))
+        try:
+            single_patch_connected_ip(bond_id, connected_ip_id, enabled, mgmt_server, auth, verify_ssl, timeout)
+            log('Updated bond {} connected IP {}.'.format(bond_id, connected_ip_id))
+            break
+        except requests.exceptions.HTTPError as err:
+            log('Request failed: {}'.format(err.response.json()))
+            if err.response.status_code >= 400 and err.response.status_code < 500:
+                # A client error occurred. No use retrying.
+                break
+        except requests.exceptions.RequestException as err:
+            log('Request to {} failed: {}'.format(mgmt_server, err))
+        if i < attempts - 1:
+            # We will be trying again, so sleep. Don't sleep if that was the last try.
+            time.sleep(attempt_delay)
 
-def update_link_mode(bond_id, leg_id, link_mode, mgmt_server, auth, verify_ssl):
-    """Update the specified leg to the given link mode."""
-    patch_url = get_leg_type_url(bond_id, leg_id, mgmt_server, auth, verify_ssl)
+def single_patch_connected_ip(bond_id, connected_ip_id, enabled, mgmt_server, auth, verify_ssl, timeout):
+    """Enable or disable the specified connected IP."""
     res = requests.patch(
-        patch_url,
-        json={'link_mode': link_mode},
+        CONNECTED_IP_URL.format(mgmt_server, bond_id, connected_ip_id),
+        json={'enabled': enabled},
         auth=auth,
-        verify=verify_ssl
+        verify=verify_ssl,
+        timeout=timeout,
     )
     res.raise_for_status()
+
+def log(message):
+    """If running in a TTY, print the message to the screen, otherwise log it."""
+    if sys.stdout.isatty():
+        sys.stdout.write('{}\n'.format(message))
+    else:
+        syslog.syslog(message)
 
 if __name__ == '__main__':
-    syslog.openlog(ident='enable-disable-leg')
+    syslog.openlog(ident='swap-connected-ip')
 
     try:
-        bond_id = sys.argv[1]
-        leg_id = sys.argv[2]
-        link_mode = sys.argv[3]
-    except IndexError:
-        sys.stderr.write('Usage: {} <bond-id> <leg-id> offline|idle|active\n'.format(sys.argv[0]))
-        sys.exit(1)
-
-    try:
-        mgmt_server = os.environ['BA_HOST']
-        auth = (os.environ['BA_USER'], os.environ['BA_PASSWD'])
-        verify_ssl = os.environ.get('BA_VERIFY_SSL', '') != 'False'
-    except KeyError:
-        sys.stderr.write('Missing one or more of these environment variables: BA_HOST, BA_USER and BA_PASSWD\n')
+        with open(CONF_FILE, 'r') as cf:
+            config = configparser.ConfigParser()
+            config.read_file(cf)
+    except EnvironmentError as e:
+        log('Error: Failed to read conf file: {}'.format(e))
         sys.exit(1)
 
     try:
-        update_link_mode(bond_id, leg_id, link_mode, mgmt_server, auth, verify_ssl)
-        syslog.syslog('Updated bond {} leg {} link mode to {}.'.format(bond_id, leg_id, link_mode))
-    except requests.exceptions.HTTPError as err:
-        sys.stderr.write('Request failed: {}\n'.format(err.response.json()))
+        mgmt_server = config.get('bondingadmin', 'host')
+        user = config.get('bondingadmin', 'user')
+        passwd = config.get('bondingadmin', 'passwd')
+        verify_ssl = config.getboolean('bondingadmin', 'verify_ssl', fallback=True)
+        timeout = config.getfloat('bondingadmin', 'timeout', fallback=10.0)
+        attempts = config.getint('bondingadmin', 'attempts', fallback=3)
+        attempt_delay = config.getfloat('bondingadmin', 'attempt_delay', fallback=5.0)
+
+        master_bond_id = config.get('bond', 'master_bond_id')
+        master_connected_ip_id = config.get('bond', 'master_connected_ip_id')
+        backup_bond_id = config.get('bond', 'backup_bond_id')
+        backup_connected_ip_id = config.get('bond', 'backup_connected_ip_id')
+
+        role = config.get('node', 'role')
+    except (configparser.NoSectionError, configparser.NoOptionError) as e:
+        log('Error: incomplete configuration: {}'.format(e))
         sys.exit(1)
-    except requests.exceptions.RequestException as err:
-        sys.stderr.write('Request to {} failed: {}\n'.format(mgmt_server, err))
+    except ValueError as e:
+        log('Error: {}'.format(e))
         sys.exit(1)
+
+    auth = (user, passwd)
+
+    if role == 'master':
+        # We're running on the master, so we need to disable on the backup and enable on the master.
+        disable_target = (backup_bond_id, backup_connected_ip_id)
+        enable_target = (master_bond_id, master_connected_ip_id)
+    elif role == 'backup':
+        # We're running on the backup, so we need to disable on the master and enable on the backup.
+        disable_target = (master_bond_id, master_connected_ip_id)
+        enable_target = (backup_bond_id, backup_connected_ip_id)
+    else:
+        log('Error: role must be either master or backup')
+        sys.exit(1)
+
+    # Disable the peer's connected IP, then enable our connected IP.
+    update_connected_ip(disable_target, False, mgmt_server, auth, verify_ssl, timeout, attempts, attempt_delay)
+    update_connected_ip(enable_target, True, mgmt_server, auth, verify_ssl, timeout, attempts, attempt_delay)
