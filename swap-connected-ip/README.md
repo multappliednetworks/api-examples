@@ -46,6 +46,14 @@ backup_connected_ip_id = 2
 role = master # On the backup host, set to "backup"
 ```
 
-After the configuration file is set up, you can call the script on the command line to test it.
+After the configuration file is set up, you can call the script on the command line to test it:
+
+```
+/usr/local/bin/swap-connected-ip.py
+```
+
+The script will print a few lines about what it's doing and any errors it encounters.
+
+When called from keepalived (or equivalent application), the script will log to the syslog file.
 
 TODO: provide example keepalived configuration?
