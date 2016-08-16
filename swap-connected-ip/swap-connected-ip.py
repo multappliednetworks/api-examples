@@ -13,6 +13,7 @@ import requests # This is always installed in the /usr/lib/bonding/bin/python en
 
 CONF_FILE = '/etc/bonding/swapconnectedip.conf'
 CONNECTED_IP_URL = 'https://{}/api/v3/bonds/{}/connected_ips/{}/'
+MASTER_PRIO = '10'
 
 def update_connected_ip(target_ids, enabled, mgmt_server, auth, verify_ssl, timeout, attempts, attempt_delay):
     """Update the connected IP. Try multiple times if necessary."""
@@ -64,6 +65,21 @@ if __name__ == '__main__':
         log('Error: Failed to read conf file: {}'.format(e))
         sys.exit(1)
 
+    # State refers to the newly-executed state in keepalived- MASTER when a node is active, BACKUP when it's not active.
+    # Role refers to the purpose of the node- either the master node or the backup node.
+    if len(sys.argv) >= 4:
+        filename, instance, instance_id, state, prio = sys.argv
+        role = 'master' if prio == MASTER_PRIO else 'backup'
+    else:
+        state = 'MASTER'
+        role = 'master'
+        log('Warning: not enough arguments to determine state and prio from argument list. Defaulting to state MASTER, prio 10 (master bonder). To run as backup, run:')
+        log('{} arg arg MASTER 9'.format(sys.argv[0]))
+
+    if state != 'MASTER':
+        # Only the node going to MASTER state needs to do anything. If this node is going to BACKUP state, then we know that the other node will be going to MASTER, so we don't need to do anything.
+        sys.exit(0)
+
     try:
         mgmt_server = config.get('bondingadmin', 'host')
         user = config.get('bondingadmin', 'user')
@@ -77,8 +93,6 @@ if __name__ == '__main__':
         master_connected_ip_id = config.get('bond', 'master_connected_ip_id')
         backup_bond_id = config.get('bond', 'backup_bond_id')
         backup_connected_ip_id = config.get('bond', 'backup_connected_ip_id')
-
-        role = config.get('node', 'role')
     except (configparser.NoSectionError, configparser.NoOptionError) as e:
         log('Error: incomplete configuration: {}'.format(e))
         sys.exit(1)
