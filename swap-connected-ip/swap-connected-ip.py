@@ -2,24 +2,33 @@
 """
 Swap a connected IP from one bond to another.
 
-If configured with role=master, disable the connected IP on the backup and enable it on the master. If configured with role=backup, disable on the master and enable on the backup.
+If configured with role=master, disable the connected IP on the backup and
+enable it on the master. If configured with role=backup, disable on the master
+and enable on the backup.
 """
 import sys
-import os
 import syslog
 import configparser
 import time
-import requests # This is always installed in the /usr/lib/bonding/bin/python environment. If you use your own Python environment, install this with "pip3 install requests".
+
+# This is always installed in the /usr/lib/bonding/bin/python environment. If
+# you use your own Python environment, install this with
+#   "pip3 install requests".
+#
+import requests
 
 CONF_FILE = '/etc/bonding/swapconnectedip.conf'
 CONNECTED_IP_URL = 'https://{}/api/v3/bonds/{}/connected_ips/{}/'
 MASTER_PRIO = '10'
 
-def update_connected_ip(target_ids, enabled, mgmt_server, auth, verify_ssl, timeout, attempts, attempt_delay):
+
+class ConfigError(Exception):
+    pass
+
+
+def update_connected_ip(bond_id, connected_ip_id, enabled, mgmt_server, auth, verify_ssl, timeout, attempts, attempt_delay):
     """Update the connected IP. Try multiple times if necessary."""
     for i in range(attempts):
-        bond_id = target_ids[0]
-        connected_ip_id = target_ids[1]
         log('Updating bond {} connected IP {} enabled to {} (attempt {} of {}).'.format(bond_id, connected_ip_id, enabled, i + 1, attempts))
         try:
             single_patch_connected_ip(bond_id, connected_ip_id, enabled, mgmt_server, auth, verify_ssl, timeout)
@@ -36,6 +45,7 @@ def update_connected_ip(target_ids, enabled, mgmt_server, auth, verify_ssl, time
             # We will be trying again, so sleep. Don't sleep if that was the last try.
             time.sleep(attempt_delay)
 
+
 def single_patch_connected_ip(bond_id, connected_ip_id, enabled, mgmt_server, auth, verify_ssl, timeout):
     """Enable or disable the specified connected IP."""
     res = requests.patch(
@@ -47,12 +57,27 @@ def single_patch_connected_ip(bond_id, connected_ip_id, enabled, mgmt_server, au
     )
     res.raise_for_status()
 
+
+def get_connectedip_id_list(s):
+    """
+    Get a list of ids from a comma-separated string
+    """
+    connectedip_ids = []
+    for connectedip_id in s.split(','):
+        connectedip_id = connectedip_id.strip()
+        if not connectedip_id.isdigit():
+            raise ConfigError('Connected IP connectedip_id "{}" must be a number.'.format(connectedip_id))
+        connectedip_ids.append(connectedip_id)
+    return connectedip_ids
+
+
 def log(message):
     """If running in a TTY, print the message to the screen, otherwise log it."""
     if sys.stdout.isatty():
         sys.stdout.write('{}\n'.format(message))
     else:
         syslog.syslog(message)
+
 
 if __name__ == '__main__':
     syslog.openlog(ident='swap-connected-ip')
@@ -73,11 +98,16 @@ if __name__ == '__main__':
     else:
         state = 'MASTER'
         role = 'master'
-        log('Warning: not enough arguments to determine state and prio from argument list. Defaulting to state MASTER, prio 10 (master bonder). To run as backup, run:')
+        log(
+            'Warning: not enough arguments to determine state and prio from argument list. '
+            'Defaulting to state MASTER, prio 10 (master bonder). To run as backup, run:'
+        )
         log('{} arg arg MASTER 9'.format(sys.argv[0]))
 
     if state != 'MASTER':
-        # Only the node going to MASTER state needs to do anything. If this node is going to BACKUP state, then we know that the other node will be going to MASTER, so we don't need to do anything.
+        # Only the node going to MASTER state needs to do anything. If this
+        # node is going to BACKUP state, then we know that the other node will
+        # be going to MASTER, so we don't need to do anything.
         sys.exit(0)
 
     try:
@@ -90,10 +120,10 @@ if __name__ == '__main__':
         attempt_delay = config.getfloat('bondingadmin', 'attempt_delay', fallback=5.0)
 
         master_bond_id = config.get('bond', 'master_bond_id')
-        master_connected_ip_id = config.get('bond', 'master_connected_ip_id')
+        master_connected_ip_ids = get_connectedip_id_list(config.get('bond', 'master_connected_ip_ids'))
         backup_bond_id = config.get('bond', 'backup_bond_id')
-        backup_connected_ip_id = config.get('bond', 'backup_connected_ip_id')
-    except (configparser.NoSectionError, configparser.NoOptionError) as e:
+        backup_connected_ip_ids = get_connectedip_id_list(config.get('bond', 'backup_connected_ip_ids'))
+    except (configparser.NoSectionError, configparser.NoOptionError, ConfigError) as e:
         log('Error: incomplete configuration: {}'.format(e))
         sys.exit(1)
     except ValueError as e:
@@ -104,16 +134,22 @@ if __name__ == '__main__':
 
     if role == 'master':
         # We're running on the master, so we need to disable on the backup and enable on the master.
-        disable_target = (backup_bond_id, backup_connected_ip_id)
-        enable_target = (master_bond_id, master_connected_ip_id)
+        local_bond_id = master_bond_id
+        local_connected_ip_ids = master_connected_ip_ids
+        peer_bond_id = backup_bond_id
+        peer_connected_ip_ids = backup_connected_ip_ids
     elif role == 'backup':
         # We're running on the backup, so we need to disable on the master and enable on the backup.
-        disable_target = (master_bond_id, master_connected_ip_id)
-        enable_target = (backup_bond_id, backup_connected_ip_id)
+        local_bond_id = backup_bond_id
+        local_connected_ip_ids = backup_connected_ip_ids
+        peer_bond_id = master_bond_id
+        peer_connected_ip_ids = master_connected_ip_ids
     else:
         log('Error: role must be either master or backup')
         sys.exit(1)
 
-    # Disable the peer's connected IP, then enable our connected IP.
-    update_connected_ip(disable_target, False, mgmt_server, auth, verify_ssl, timeout, attempts, attempt_delay)
-    update_connected_ip(enable_target, True, mgmt_server, auth, verify_ssl, timeout, attempts, attempt_delay)
+    # Disable the peer's connected IPs, then enable our connected IPs.
+    for connected_ip_id in peer_connected_ip_ids:
+        update_connected_ip(peer_bond_id, connected_ip_id, False, mgmt_server, auth, verify_ssl, timeout, attempts, attempt_delay)
+    for connected_ip_id in local_connected_ip_ids:
+        update_connected_ip(local_bond_id, connected_ip_id, True, mgmt_server, auth, verify_ssl, timeout, attempts, attempt_delay)
