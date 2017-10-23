@@ -1,11 +1,12 @@
 #!/usr/lib/bonding/bin/python3
 """
-Swap a connected IP from one bond to another.
+Swap connected IPs and routes from one bond to another.
 
-If configured with role=master, disable the connected IP on the backup and
-enable it on the master. If configured with role=backup, disable on the master
-and enable on the backup.
+If configured with role=master, disable the connected IP and routes on the
+backup and enable it on the master. If configured with role=backup, disable on
+the master and enable on the backup.
 """
+import argparse
 import sys
 import syslog
 import configparser
@@ -17,22 +18,32 @@ import time
 #
 import requests
 
-CONF_FILE = '/etc/bonding/swapconnectedip.conf'
+CONF_FILE = '/etc/bonding/swap-active-bond.conf'
 CONNECTED_IP_URL = 'https://{}/api/v3/bonds/{}/connected_ips/{}/'
+ROUTE_IP_URL = 'https://{}/api/v3/bonds/{}/routes/{}/'
 MASTER_PRIO = '10'
+MASTER_ROLE = 'master'
+BACKUP_ROLE = 'backup'
 
 
 class ConfigError(Exception):
     pass
 
 
-def update_connected_ip(bond_id, connected_ip_id, enabled, mgmt_server, auth, verify_ssl, timeout, attempts, attempt_delay):
-    """Update the connected IP. Try multiple times if necessary."""
+def update_routing_object(uri, bond_id, routing_object_id, enabled, mgmt_server, auth, verify_ssl, timeout, attempts, attempt_delay):
+    """Update the routing object ID found at `uri`. Try multiple times if necessary."""
     for i in range(attempts):
-        log('Updating bond {} connected IP {} enabled to {} (attempt {} of {}).'.format(bond_id, connected_ip_id, enabled, i + 1, attempts))
+        log('Updating bond {} routing object {} enabled to {} (attempt {} of {}).'.format(bond_id, routing_object_id, enabled, i + 1, attempts))
         try:
-            single_patch_connected_ip(bond_id, connected_ip_id, enabled, mgmt_server, auth, verify_ssl, timeout)
-            log('Updated bond {} connected IP {}.'.format(bond_id, connected_ip_id))
+            res = requests.patch(
+                uri.format(mgmt_server, bond_id, routing_object_id),
+                json={'enabled': enabled},
+                auth=auth,
+                verify=verify_ssl,
+                timeout=timeout,
+            )
+            res.raise_for_status()
+            log('Updated bond {} routing object {}.'.format(bond_id, routing_object_id))
             break
         except requests.exceptions.HTTPError as err:
             log('Request failed: {}'.format(err.response.json()))
@@ -46,29 +57,15 @@ def update_connected_ip(bond_id, connected_ip_id, enabled, mgmt_server, auth, ve
             time.sleep(attempt_delay)
 
 
-def single_patch_connected_ip(bond_id, connected_ip_id, enabled, mgmt_server, auth, verify_ssl, timeout):
-    """Enable or disable the specified connected IP."""
-    res = requests.patch(
-        CONNECTED_IP_URL.format(mgmt_server, bond_id, connected_ip_id),
-        json={'enabled': enabled},
-        auth=auth,
-        verify=verify_ssl,
-        timeout=timeout,
-    )
-    res.raise_for_status()
-
-
-def get_connectedip_id_list(s):
-    """
-    Get a list of ids from a comma-separated string
-    """
-    connectedip_ids = []
-    for connectedip_id in s.split(','):
-        connectedip_id = connectedip_id.strip()
-        if not connectedip_id.isdigit():
-            raise ConfigError('Connected IP connectedip_id "{}" must be a number.'.format(connectedip_id))
-        connectedip_ids.append(connectedip_id)
-    return connectedip_ids
+def get_id_list(s):
+    """Get a list of ids from a comma-separated string."""
+    object_ids = []
+    for object_id in s.split(','):
+        object_id = object_id.strip()
+        if not object_id.isdigit():
+            raise ConfigError('"{}" must be a number.'.format(object_id))
+        object_ids.append(object_id)
+    return object_ids
 
 
 def log(message):
@@ -90,21 +87,18 @@ if __name__ == '__main__':
         log('Error: Failed to read conf file: {}'.format(e))
         sys.exit(1)
 
-    # State refers to the newly-executed state in keepalived- MASTER when a node is active, BACKUP when it's not active.
-    # Role refers to the purpose of the node- either the master node or the backup node.
-    if len(sys.argv) >= 4:
-        filename, instance, instance_id, state, prio = sys.argv
-        role = 'master' if prio == MASTER_PRIO else 'backup'
-    else:
-        state = 'MASTER'
-        role = 'master'
-        log(
-            'Warning: not enough arguments to determine state and prio from argument list. '
-            'Defaulting to state MASTER, prio 10 (master bonder). To run as backup, run:'
-        )
-        log('{} arg arg MASTER 9'.format(sys.argv[0]))
+    parser = argparse.ArgumentParser(description='Swap active bond.')
+    parser.add_argument('filename', help="Unused but given by keepalived")
+    parser.add_argument('instance', help="Unused but given by keepalived: GROUP or INSTANCE")
+    parser.add_argument('instance_id', help="Name of group or instance")
+    parser.add_argument('state', help="State refers to the newly-executed state in keepalived- MASTER when a node is active, BACKUP when it's not active.")
+    parser.add_argument('priority')
+    args = parser.parse_args()
 
-    if state != 'MASTER':
+    # Role refers to the purpose of the node- either the master node or the backup node.
+    role = MASTER_ROLE if args.priority == MASTER_PRIO else BACKUP_ROLE
+
+    if args.state != 'MASTER':
         # Only the node going to MASTER state needs to do anything. If this
         # node is going to BACKUP state, then we know that the other node will
         # be going to MASTER, so we don't need to do anything.
@@ -120,9 +114,12 @@ if __name__ == '__main__':
         attempt_delay = config.getfloat('bondingadmin', 'attempt_delay', fallback=5.0)
 
         master_bond_id = config.get('bond', 'master_bond_id')
-        master_connected_ip_ids = get_connectedip_id_list(config.get('bond', 'master_connected_ip_ids'))
+        master_connected_ip_ids = get_id_list(config.get('bond', 'master_connected_ip_ids'))
+        master_route_ids = get_id_list(config.get('bond', 'master_route_ids'))
+
         backup_bond_id = config.get('bond', 'backup_bond_id')
-        backup_connected_ip_ids = get_connectedip_id_list(config.get('bond', 'backup_connected_ip_ids'))
+        backup_connected_ip_ids = get_id_list(config.get('bond', 'backup_connected_ip_ids'))
+        backup_route_ids = get_id_list(config.get('bond', 'backup_route_ids'))
     except (configparser.NoSectionError, configparser.NoOptionError, ConfigError) as e:
         log('Error: incomplete configuration: {}'.format(e))
         sys.exit(1)
@@ -136,20 +133,32 @@ if __name__ == '__main__':
         # We're running on the master, so we need to disable on the backup and enable on the master.
         local_bond_id = master_bond_id
         local_connected_ip_ids = master_connected_ip_ids
+        local_route_ids = master_route_ids
+
         peer_bond_id = backup_bond_id
         peer_connected_ip_ids = backup_connected_ip_ids
+        peer_route_ids = backup_route_ids
     elif role == 'backup':
         # We're running on the backup, so we need to disable on the master and enable on the backup.
         local_bond_id = backup_bond_id
         local_connected_ip_ids = backup_connected_ip_ids
+        local_route_ids = backup_route_ids
+
         peer_bond_id = master_bond_id
         peer_connected_ip_ids = master_connected_ip_ids
+        peer_route_ids = master_route_ids
     else:
         log('Error: role must be either master or backup')
         sys.exit(1)
 
-    # Disable the peer's connected IPs, then enable our connected IPs.
+    # Disable the peer's connected IPs and routes, then enable our connected IPs and routes.
+    for route_id in peer_route_ids:
+        update_routing_object(ROUTE_IP_URL, peer_bond_id, route_id, False, mgmt_server, auth, verify_ssl, timeout, attempts, attempt_delay)
+    for route_id in local_route_ids:
+        update_routing_object(ROUTE_IP_URL, local_bond_id, route_id, True, mgmt_server, auth, verify_ssl, timeout, attempts, attempt_delay)
+
     for connected_ip_id in peer_connected_ip_ids:
-        update_connected_ip(peer_bond_id, connected_ip_id, False, mgmt_server, auth, verify_ssl, timeout, attempts, attempt_delay)
+        update_routing_object(CONNECTED_IP_URL, peer_bond_id, connected_ip_id, False, mgmt_server, auth, verify_ssl, timeout, attempts, attempt_delay)
     for connected_ip_id in local_connected_ip_ids:
-        update_connected_ip(local_bond_id, connected_ip_id, True, mgmt_server, auth, verify_ssl, timeout, attempts, attempt_delay)
+        update_routing_object(CONNECTED_IP_URL, local_bond_id, connected_ip_id, True, mgmt_server, auth, verify_ssl, timeout, attempts, attempt_delay)
+
