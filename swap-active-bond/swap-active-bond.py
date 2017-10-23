@@ -77,7 +77,7 @@ def log(message):
 
 
 if __name__ == '__main__':
-    syslog.openlog(ident='swap-connected-ip')
+    syslog.openlog(ident='swap-active-bond')
 
     try:
         with open(CONF_FILE, 'r') as cf:
@@ -88,7 +88,6 @@ if __name__ == '__main__':
         sys.exit(1)
 
     parser = argparse.ArgumentParser(description='Swap active bond.')
-    parser.add_argument('filename', help="Unused but given by keepalived")
     parser.add_argument('instance', help="Unused but given by keepalived: GROUP or INSTANCE")
     parser.add_argument('instance_id', help="Name of group or instance")
     parser.add_argument('state', help="State refers to the newly-executed state in keepalived- MASTER when a node is active, BACKUP when it's not active.")
