@@ -20,7 +20,8 @@ import requests
 
 CONF_FILE = '/etc/bonding/swap-active-bond.conf'
 CONNECTED_IP_URL = 'https://{}/api/v3/bonds/{}/connected_ips/{}/'
-ROUTE_IP_URL = 'https://{}/api/v3/bonds/{}/routes/{}/'
+ROUTE_URL = 'https://{}/api/v3/bonds/{}/routes/{}/'
+CPE_NAT_IP_URL = 'https://{}/api/v3/bonds/{}/cpe_nat_ips/{}/'
 MASTER_PRIO = '10'
 MASTER_ROLE = 'master'
 BACKUP_ROLE = 'backup'
@@ -30,10 +31,10 @@ class ConfigError(Exception):
     pass
 
 
-def update_routing_object(uri, bond_id, routing_object_id, enabled, mgmt_server, auth, verify_ssl, timeout, attempts, attempt_delay):
+def update_routing_object(uri, bond_id, routing_object_id, enabled, mgmt_server, auth, verify_ssl, timeout, attempts, attempt_delay, name):
     """Update the routing object ID found at `uri`. Try multiple times if necessary."""
     for i in range(attempts):
-        log('Updating bond {} routing object {} enabled to {} (attempt {} of {}).'.format(bond_id, routing_object_id, enabled, i + 1, attempts))
+        log('Updating bond {} {} {} enabled to {} (attempt {} of {}).'.format(bond_id, name, routing_object_id, enabled, i + 1, attempts))
         try:
             res = requests.patch(
                 uri.format(mgmt_server, bond_id, routing_object_id),
@@ -43,7 +44,7 @@ def update_routing_object(uri, bond_id, routing_object_id, enabled, mgmt_server,
                 timeout=timeout,
             )
             res.raise_for_status()
-            log('Updated bond {} routing object {}.'.format(bond_id, routing_object_id))
+            log('Updated bond {} {} {}.'.format(bond_id, name, routing_object_id))
             break
         except requests.exceptions.HTTPError as err:
             log('Request failed: {}'.format(err.response.json()))
@@ -60,6 +61,8 @@ def update_routing_object(uri, bond_id, routing_object_id, enabled, mgmt_server,
 def get_id_list(s):
     """Get a list of ids from a comma-separated string."""
     object_ids = []
+    if not s:
+        return object_ids
     for object_id in s.split(','):
         object_id = object_id.strip()
         if not object_id.isdigit():
@@ -115,10 +118,12 @@ if __name__ == '__main__':
         master_bond_id = config.get('bond', 'master_bond_id')
         master_connected_ip_ids = get_id_list(config.get('bond', 'master_connected_ip_ids'))
         master_route_ids = get_id_list(config.get('bond', 'master_route_ids'))
+        master_cpe_nat_ip_ids = get_id_list(config.get('bond', 'master_cpe_nat_ip_ids'))
 
         backup_bond_id = config.get('bond', 'backup_bond_id')
         backup_connected_ip_ids = get_id_list(config.get('bond', 'backup_connected_ip_ids'))
         backup_route_ids = get_id_list(config.get('bond', 'backup_route_ids'))
+        backup_cpe_nat_ip_ids = get_id_list(config.get('bond', 'backup_cpe_nat_ip_ids'))
     except (configparser.NoSectionError, configparser.NoOptionError, ConfigError) as e:
         log('Error: incomplete configuration: {}'.format(e))
         sys.exit(1)
@@ -133,31 +138,41 @@ if __name__ == '__main__':
         local_bond_id = master_bond_id
         local_connected_ip_ids = master_connected_ip_ids
         local_route_ids = master_route_ids
+        local_cpe_nat_ip_ids = master_cpe_nat_ip_ids
 
         peer_bond_id = backup_bond_id
         peer_connected_ip_ids = backup_connected_ip_ids
         peer_route_ids = backup_route_ids
+        peer_cpe_nat_ip_ids = backup_cpe_nat_ip_ids
     elif role == 'backup':
         # We're running on the backup, so we need to disable on the master and enable on the backup.
         local_bond_id = backup_bond_id
         local_connected_ip_ids = backup_connected_ip_ids
         local_route_ids = backup_route_ids
+        local_cpe_nat_ip_ids = backup_cpe_nat_ip_ids
 
         peer_bond_id = master_bond_id
         peer_connected_ip_ids = master_connected_ip_ids
         peer_route_ids = master_route_ids
+        peer_cpe_nat_ip_ids = master_cpe_nat_ip_ids
     else:
         log('Error: role must be either master or backup')
         sys.exit(1)
 
-    # Disable the peer's connected IPs and routes, then enable our connected IPs and routes.
+    # Disable the peer's connected IPs, routes, and CPE NAT IPs, then enable our routing objects.
+    for cpe_nat_ip_id in peer_cpe_nat_ip_ids:
+        update_routing_object(CPE_NAT_IP_URL, peer_bond_id, cpe_nat_ip_id, False, mgmt_server, auth, verify_ssl, timeout, attempts, attempt_delay, name='CPE NAT IP')
+
     for route_id in peer_route_ids:
-        update_routing_object(ROUTE_IP_URL, peer_bond_id, route_id, False, mgmt_server, auth, verify_ssl, timeout, attempts, attempt_delay)
+        update_routing_object(ROUTE_URL, peer_bond_id, route_id, False, mgmt_server, auth, verify_ssl, timeout, attempts, attempt_delay, name='route')
     for route_id in local_route_ids:
-        update_routing_object(ROUTE_IP_URL, local_bond_id, route_id, True, mgmt_server, auth, verify_ssl, timeout, attempts, attempt_delay)
+        update_routing_object(ROUTE_URL, local_bond_id, route_id, True, mgmt_server, auth, verify_ssl, timeout, attempts, attempt_delay, name='route')
 
     for connected_ip_id in peer_connected_ip_ids:
-        update_routing_object(CONNECTED_IP_URL, peer_bond_id, connected_ip_id, False, mgmt_server, auth, verify_ssl, timeout, attempts, attempt_delay)
+        update_routing_object(CONNECTED_IP_URL, peer_bond_id, connected_ip_id, False, mgmt_server, auth, verify_ssl, timeout, attempts, attempt_delay, name='connected IP')
     for connected_ip_id in local_connected_ip_ids:
-        update_routing_object(CONNECTED_IP_URL, local_bond_id, connected_ip_id, True, mgmt_server, auth, verify_ssl, timeout, attempts, attempt_delay)
+        update_routing_object(CONNECTED_IP_URL, local_bond_id, connected_ip_id, True, mgmt_server, auth, verify_ssl, timeout, attempts, attempt_delay, name='connected IP')
+
+    for cpe_nat_ip_id in local_cpe_nat_ip_ids:
+        update_routing_object(CPE_NAT_IP_URL, local_bond_id, cpe_nat_ip_id, True, mgmt_server, auth, verify_ssl, timeout, attempts, attempt_delay, name='CPE NAT IP')
 
