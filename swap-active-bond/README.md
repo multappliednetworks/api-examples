@@ -64,11 +64,19 @@ In the `[bond]` section:
 * `master_bond_id`: The ID of the master bond as reported in the management server.
 * `master_connected_ip_ids`: The IDs of the floating connected IPs on the master bond. If multiple IPs are required, separate using commas, eg: 1, 2, 3
 * `master_route_ids`: The IDs of the floating routes on the master bond. If multiple routes are required, separate using commas, eg: 1, 2, 3
-* `master_cpe_nat_ip_ids`: The IDs of the floating CPE NAT IPs on the master bond. If multiple routes are required, separate using commas, eg: 1, 2, 3
+* `master_cpe_nat_ip_ids`: The IDs of the floating CPE NAT IPs on the master bond. If multiple CPE NAT IPs are required, separate using commas, eg: 1, 2, 3
 * `backup_bond_id`: The ID of the backup bond.
 * `backup_connected_ip_ids`: The IDs of the floating connected IPs on the backup bond. If multiple IPs are required, separate using commas, eg: 3, 4, 5
 * `backup_route_ids`: The IDs of the floating routes on the backup bond. If multiple routes are required, separate using commas, eg: 1, 2, 3
-* `backup_cpe_nat_ip_ids`: The IDs of the floating CPE NAT IPs on the backup bond. If multiple routes are required, separate using commas, eg: 1, 2, 3
+* `backup_cpe_nat_ip_ids`: The IDs of the floating CPE NAT IPs on the backup bond. If multiple CPE NAT IPs are required, separate using commas, eg: 1, 2, 3
+
+__Note:__ To omit any of connected IPs, routes, or CPE NAT IPs, simply omit values for their respective options in `/etc/bonding/swap-active-bond.conf`. For example, if only connected IPs apply for your bond:
+
+    [bond]
+    master_bond_id = 1
+    master_connected_ip_ids = 1,2
+    backup_bond_id= 3
+    backup_connected_ip_ids= 4,5
 
 Once you've completed the configuration, copy the file to the same location on the backup bonder.
 

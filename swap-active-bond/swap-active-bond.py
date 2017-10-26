@@ -116,14 +116,14 @@ if __name__ == '__main__':
         attempt_delay = config.getfloat('bondingadmin', 'attempt_delay', fallback=5.0)
 
         master_bond_id = config.get('bond', 'master_bond_id')
-        master_connected_ip_ids = get_id_list(config.get('bond', 'master_connected_ip_ids'))
-        master_route_ids = get_id_list(config.get('bond', 'master_route_ids'))
-        master_cpe_nat_ip_ids = get_id_list(config.get('bond', 'master_cpe_nat_ip_ids'))
+        master_connected_ip_ids = get_id_list(config.get('bond', 'master_connected_ip_ids', fallback=''))
+        master_route_ids = get_id_list(config.get('bond', 'master_route_ids', fallback=''))
+        master_cpe_nat_ip_ids = get_id_list(config.get('bond', 'master_cpe_nat_ip_ids', fallback=''))
 
         backup_bond_id = config.get('bond', 'backup_bond_id')
-        backup_connected_ip_ids = get_id_list(config.get('bond', 'backup_connected_ip_ids'))
-        backup_route_ids = get_id_list(config.get('bond', 'backup_route_ids'))
-        backup_cpe_nat_ip_ids = get_id_list(config.get('bond', 'backup_cpe_nat_ip_ids'))
+        backup_connected_ip_ids = get_id_list(config.get('bond', 'backup_connected_ip_ids', fallback=''))
+        backup_route_ids = get_id_list(config.get('bond', 'backup_route_ids', fallback=''))
+        backup_cpe_nat_ip_ids = get_id_list(config.get('bond', 'backup_cpe_nat_ip_ids', fallback=''))
     except (configparser.NoSectionError, configparser.NoOptionError, ConfigError) as e:
         log('Error: incomplete configuration: {}'.format(e))
         sys.exit(1)
