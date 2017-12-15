@@ -165,8 +165,6 @@ if __name__ == '__main__':
 
     for route_id in peer_route_ids:
         update_routing_object(ROUTE_URL, peer_bond_id, route_id, False, mgmt_server, auth, verify_ssl, timeout, attempts, attempt_delay, name='route')
-    for route_id in local_route_ids:
-        update_routing_object(ROUTE_URL, local_bond_id, route_id, True, mgmt_server, auth, verify_ssl, timeout, attempts, attempt_delay, name='route')
 
     for connected_ip_id in peer_connected_ip_ids:
         update_routing_object(CONNECTED_IP_URL, peer_bond_id, connected_ip_id, False, mgmt_server, auth, verify_ssl, timeout, attempts, attempt_delay, name='connected IP')
@@ -175,4 +173,7 @@ if __name__ == '__main__':
 
     for cpe_nat_ip_id in local_cpe_nat_ip_ids:
         update_routing_object(CPE_NAT_IP_URL, local_bond_id, cpe_nat_ip_id, True, mgmt_server, auth, verify_ssl, timeout, attempts, attempt_delay, name='CPE NAT IP')
+
+    for route_id in local_route_ids:
+        update_routing_object(ROUTE_URL, local_bond_id, route_id, True, mgmt_server, auth, verify_ssl, timeout, attempts, attempt_delay, name='route')
 
