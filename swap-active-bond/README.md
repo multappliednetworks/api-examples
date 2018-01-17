@@ -19,7 +19,7 @@ Create two bonds: one master and one backup. Each bond can have its own aggregat
 ##### Routing objects
 On each bond, create one or more connected IPs, routes, or CPE NAT IPs. These are the IPs that will float between the master and backup devices depending on which one is active. On the master bond, these IPs should be enabled, and on the backup bond, they should be disabled.
 
-Next, create a private IP used to communicate between the bonders themselves. These IPs must be different IPs in the same subnet; it can be a small /30 subnet. These can be on the same interface as one of the floating public IPs, or they can be on a dedicated interface or VLAN.
+Next, create a private IP used to communicate between the bonders themselves. These IPs must be different IPs in the same subnet; it can be a small /30 subnet. These can be on the same interface as one of the floating IPs, or they can be on a dedicated interface or VLAN.
 
 ###### Example connected IP configuration
 * Master bond:
