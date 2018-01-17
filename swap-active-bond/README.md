@@ -37,7 +37,7 @@ This section describes how to set up keepalived and a Python script that uses th
 
 Connect the interfaces having the private IPs on each bond to the same Ethernet network, and the interfaces having the public IPs on each bond to the same network. This could be a single network with all the IPs, or it could be two separate networks or VLANs- one network for the floating IPs, and one network for the bonders to monitor each other using the private IPs.
 
-**Note:** The interfaces having the private IPs on each bond are ordinarily connected to the same network (e.g., through a switch). In the case that they are directly connected, you must adjust the `keepalived.conf` file to uncomment the `dont_track_primary` option. The example `keepalived.conf` file describes this in more detail.
+**Warning:** The interfaces having the private IPs on each bond must not be connected directly. If they are, the interface will lose carrier when either bonder goes down and keepalived will assume it to be a fault and not fail over the routing objects.
 
 ##### Install and configure swap-active-bond script
 This script is available on GitHub. On each bonder, download it to `/usr/local/bin`:
