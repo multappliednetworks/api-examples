@@ -113,9 +113,10 @@ Edit the file `/etc/keepalived/keepalived.conf` and change these values:
 
 Once you've completed the configuration, copy the file to the same location on the backup bonder and change the appropriate values (`state`, `priority`, `unicast_src_ip`, `unicast_peer`, and possibly `interface`).
 
-Start or restart keepalived on each bonder:
+Enable and start keepalived on each bonder:
 
-    systemctl restart keepalived.service
+    systemctl enable keepalived.service
+    systemctl start keepalived.service
 
 You can monitor the state of the system using this command, which displays logs from the keepalived service:
 
