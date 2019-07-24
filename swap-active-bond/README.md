@@ -4,7 +4,7 @@ This document describes how to set up a pair of highly-available bonders using k
 When TCP proxy is enabled, all TCP sessions using the ports defined in the TCP proxy ports field will be interrupted when the active bonder changes. Applications will need to restart their sessions after the active bonder is changed.
 
 ##### Requirements
-Two bonders with Bonded Internet >= 2016.1. Also note that while this is expected to work on Debian 7 ("Wheezy") bonders, the following documentation is intended for Debian 8 ("Jessie") bonders.
+Two bonders with Bonded Internet >= 2016.1. The following documentation is intended for Debian 8 ("Jessie") bonders, but with some modification could likely run on older Debian 7 ("Wheezy") bonders.
 
 ##### User and group setup (optional)
 This part is optional but strongly recommended. Create a new permissions group with permission to view and change routing objects. Then make a new user account whose only group is the dedicated group you just created. This user will only have permission to view and change routing objects. Additionally, you can create this group within a child space, not the root space, to restrict the user to only making changes to routing objects on bonds within the child space or children of that space.
@@ -113,10 +113,17 @@ Edit the file `/etc/keepalived/keepalived.conf` and change these values:
 
 Once you've completed the configuration, copy the file to the same location on the backup bonder and change the appropriate values (`state`, `priority`, `unicast_src_ip`, `unicast_peer`, and possibly `interface`).
 
-Enable and start keepalived on each bonder:
+On each bonder, ensure the keepalived service is disabled, it will be started on demand by the bonding software on each bonder:
 
-    systemctl enable keepalived.service
-    systemctl start keepalived.service
+    systemctl disable keepalived.service
+    systemctl stop keepalived.service
+
+on each bonder, create a connected connected IP hook that will start and stop the keepalived service whenever bonding starts or stops, updating PRIVATE_CONNECTED_IP_ID with the ID of the connected IP create earlier for use in communication between the keepalived services.
+
+    PRIVATE_CONNECTED_IP_ID=1
+    mkdir /etc/bonding/connectedip.d/${PRIVATE_CONNECTED_IP_ID}
+    wget -nc https://raw.githubusercontent.com/multappliednetworks/api-examples/master/swap-active-bond/keepalived-connected-ip-hook -O /etc/bonding/connectedip.d/${PRIVATE_CONNECTED_IP_ID}/keepalived
+    chmod +x /etc/bonding/connectedip.d/${PRIVATE_CONNECTED_IP_ID}/keepalived
 
 You can monitor the state of the system using this command, which displays logs from the keepalived service:
 
